@@ -1,224 +1,324 @@
-(function () {
-  // CONFIGURACIÓN
-  const API_KEY = '47736816e45f47a7ae3c3676e68e662c';
-  const SYMBOL = 'USD/CAD';
-  const UPDATE_INTERVAL_MS = 60000;
-  const WIDGET_ID = 'widget-bitcoin';
-  const STYLE_ID = 'widget-bitcoin-style';
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-  // CSS
-  const css = `
-    #${WIDGET_ID} {
-      max-width: 700px;
-      margin: 20px auto;
-      background: rgba(255, 255, 255, 0.98);
-      border-radius: 20px;
-      padding: 30px;
-      box-shadow: 0 12px 32px rgba(0,0,0,0.08);
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      color: #111;
-    }
-    .header-line {text-align: center;font-weight: 600;margin: 4px 0;}
-    .indicator-name {color: #222;font-size: 1.13em;letter-spacing: 0.1em;text-transform: uppercase;font-weight: 700;border-bottom: 2px solid #e0e0e0;padding-bottom: 6px;margin: 10px 0 14px 0;}
-    h1 {color: #000;font-size: 2.2em;font-weight: 900;margin: 0 0 24px 0;letter-spacing: -0.02em;font-family: 'Montserrat', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;text-align: center;}
-    .forecast-box {background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);border-radius: 16px;padding: 30px;margin-bottom: 18px;box-shadow: 0 6px 20px rgba(0,0,0,0.07);border: 2px solid #dee2e6;position: relative;overflow: hidden;}
-    .forecast-box::before {content: '';position: absolute;top: 0; left: 0; right: 0; height: 4px;background: linear-gradient(90deg, #667eea, #764ba2);}
-    .probability-display {text-align: center;margin: 20px 0 10px 0;}
-    .probability-number {font-size: 3em;font-weight: 900;color: #222;text-shadow: 2px 2px 4px rgba(40,167,69,0.18);display: inline-block;margin: 10px 0;animation: pulse-green 2s infinite;}
-    .probability-number.positive { color: #28a745; }
-    .probability-number.negative { color: #dc3545; }
-    @keyframes pulse-green {0% { transform: scale(1); }50% { transform: scale(1.05); }100% { transform: scale(1); }}
-    .forecast-text {font-size: 1.14em;line-height: 1.8;color: #495057;text-align: justify;padding: 18px;background: rgba(255, 255, 255, 0.7);border-radius: 12px;border-left: 5px solid #667eea;margin: 12px 0 0 0;min-height: 120px;}
-    .disclaimer-block {margin-top: 24px;text-align: center;}
-    .disclaimer-warning {font-size: 1em;color: #d35400;display: flex;align-items: center;justify-content: center;gap: 8px;margin-bottom: 4px;font-style: italic;}
-    .disclaimer-text {font-size: 0.98em;color: #888;font-style: italic;margin-bottom: 10px;}
-    .authors {margin-top: 2px;font-size: 1em;color: #333;font-style: normal;text-align: center;letter-spacing: 0.5px;margin-bottom: 4px;}
-    .authors a {color: #0072c6;text-decoration: none;font-weight: 500;transition: color 0.2s;}
-    .authors a:hover {color: #28a745;text-decoration: underline;}
-    .update-info {margin-top: 12px;font-size: 1.08em;color: #444;text-align: center;background: #f4f4f4;border-radius: 8px;padding: 10px 18px;font-style: normal;border-left: 4px solid #764ba2;border-right: 4px solid #764ba2;margin-bottom: 0;font-weight: bold;}
-    @media (max-width: 768px) {h1 { font-size: 1.3em; }.probability-number { font-size: 2.1em; }.forecast-text { font-size: 1em; }#${WIDGET_ID} { padding: 10px; }}
-  `;
+public class BitcoinIndicators extends JFrame {
+    private JPanel mainPanel;
+    private JLabel athLabel, btcTodayLabel, forecastLabel;
+    private JLabel athPriceLabel, btcPriceLabel, summaryLabel;
+    private JLabel updateInfoLabel, disclaimerLabel, viptrendLabel, authorsLabel;
+    private JProgressBar athBar, priceBar, forecastBar;
+    private Timer updateTimer;
+    private SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm");
 
-  function injectCSS() {
-    if (document.getElementById(STYLE_ID)) return;
-    const style = document.createElement('style');
-    style.id = STYLE_ID;
-    style.innerHTML = css;
-    document.head.appendChild(style);
-  }
+    public BitcoinIndicators() {
+        setTitle("Indicadores de Bitcoin y Bitcoin Cash");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(700, 700);
+        setLocationRelativeTo(null);
 
-  function makeWidgetHTML() {
-    return `
-      <div class="header-line update-time" id="${WIDGET_ID}-updateLine">Actualizado a --:-- | Actualiza cada 1 minuto</div>
-      <div class="header-line indicator-name">IA-TREND-BITCOIN</div>
-      <h1>Previsión de tendencia de Bitcoin en Intradía</h1>
-      <div class="forecast-box">
-        <div class="probability-display">
-          <div class="probability-number" id="${WIDGET_ID}-probabilityNumber">--%</div>
-        </div>
-        <div class="forecast-text" id="${WIDGET_ID}-forecastText">
-          Cargando análisis...
-        </div>
-        <div class="disclaimer-block">
-          <div class="disclaimer-warning">
-            <span style="font-size: 1.3em;">⚠️</span>
-            <span>Advertencia (descargo de responsabilidad):</span>
-          </div>
-          <div class="disclaimer-text">
-            Este indicador no es ninguna recomendación para trading ni para inversión, tan sólo es educativo.
-          </div>
-          <div class="authors">
-            Autores: Tom Lips (<a href="https://x.com/mercadounico" rel="noopener noreferrer" target="_blank">@mercadounico</a>)
-            &nbsp;|&nbsp;
-            VipTrader (<a href="https://x.com/SUMAZERO1" rel="noopener noreferrer" target="_blank">@SUMAZERO1</a>)
-          </div>
-          <div class="update-info" id="${WIDGET_ID}-nextUpdateText">
-            Actualiza cada 1 minuto. Próxima actualización: --:--
-          </div>
-        </div>
-      </div>
-    `;
-  }
+        initComponents();
+        setupLayout();
+        setupTimer();
 
-  function pad(n) { return n < 10 ? '0' + n : n; }
-  function getSpanishTime(date = new Date()) {
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    const madridOffset = 2 * 60 * 60000;
-    return new Date(utc + madridOffset);
-  }
-  function getNowTime() {
-    const now = getSpanishTime();
-    return pad(now.getHours()) + ':' + pad(now.getMinutes());
-  }
-  function getNextUpdateTime() {
-    const now = getSpanishTime();
-    now.setMinutes(now.getMinutes() + 1);
-    return pad(now.getHours()) + ':' + pad(now.getMinutes());
-  }
-  function isForexActive() {
-    const now = getSpanishTime();
-    const day = now.getDay();
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    if (day === 0) return false;
-    if (day === 6) return false;
-    if (day === 1 && (hour === 0 && minute < 1)) return false;
-    if (day === 5 && (hour === 23 && minute > 59)) return false;
-    return true;
-  }
-  function getForecastComment(percent) {
-    let abs = Math.abs(percent);
-    let colorClass = percent > 0 ? 'positive' : 'negative';
-    if (percent > 0) {
-      if (abs > 0.40) {
-        return {
-          text: `Según valor actual en estos instantes, <strong>la presión compradora es fuerte</strong> para Bitcoin, con una probabilidad de <strong style="color: #28a745;">+${percent.toFixed(2)}%</strong>. Se esperan avances claros y un predominio del impulso alcista durante la jornada.`,
-          colorClass
-        };
-      } else if (abs > 0.20) {
-        return {
-          text: `Según valor actual en estos instantes, <strong>la presión compradora es moderada</strong> para Bitcoin, con una probabilidad de <strong style="color: #28a745;">+${percent.toFixed(2)}%</strong>. Se esperan avances graduales o consolidación durante la jornada.`,
-          colorClass
-        };
-      } else {
-        return {
-          text: `Según valor actual en estos instantes, <strong>la presión compradora es leve</strong> para Bitcoin, con una probabilidad de <strong style="color: #28a745;">+${percent.toFixed(2)}%</strong>. El impulso alcista es limitado, se esperan avances moderados o consolidación.`,
-          colorClass
-        };
-      }
-    } else if (percent < 0) {
-      if (abs > 0.40) {
-        return {
-          text: `Según valor actual en estos instantes, <strong>la presión vendedora es fuerte</strong> para Bitcoin, con una probabilidad de <strong style="color: #dc3545;">${percent.toFixed(2)}%</strong>. Se esperan caídas claras y predominio bajista durante la jornada.`,
-          colorClass
-        };
-      } else if (abs > 0.20) {
-        return {
-          text: `Según valor actual en estos instantes, <strong>la presión vendedora es moderada</strong> para Bitcoin, con una probabilidad de <strong style="color: #dc3545;">${percent.toFixed(2)}%</strong>. Se esperan caídas suaves o consolidación durante la jornada.`,
-          colorClass
-        };
-      } else {
-        return {
-          text: `Según valor actual en estos instantes, <strong>la presión vendedora es leve</strong> para Bitcoin, con una probabilidad de <strong style="color: #dc3545;">${percent.toFixed(2)}%</strong>. Se esperan caídas suaves o consolidación durante la jornada.`,
-          colorClass
-        };
-      }
-    } else {
-      return {
-        text: `Según valor actual, <strong>no se detecta presión relevante</strong> para Bitcoin, con una probabilidad de <strong>0.00%</strong>. Predomina la neutralidad.`,
-        colorClass: ''
-      };
+        // Cargar datos iniciales
+        fetchCryptoData();
     }
-  }
-  async function fetchPercentFromDailyClose() {
-    const url = `https://api.twelvedata.com/time_series?symbol=${SYMBOL}&interval=1day&outputsize=2&apikey=${API_KEY}`;
-    const urlCurrent = `https://api.twelvedata.com/price?symbol=${SYMBOL}&apikey=${API_KEY}`;
-    try {
-      const res = await fetch(url);
-      const data = await res.json();
-      if (!data || !data.values || data.values.length < 2) throw new Error('No daily close');
-      const lastClose = parseFloat(data.values[1].close);
-      const resCurrent = await fetch(urlCurrent);
-      const dataCurrent = await resCurrent.json();
-      if (!dataCurrent || !dataCurrent.price) throw new Error('No current price');
-      const currentPrice = parseFloat(dataCurrent.price);
-      const percent = ((currentPrice - lastClose) / lastClose) * 100;
-      return percent;
-    } catch (e) {
-      return null;
-    }
-  }
-  function updateTimes(isActive) {
-    const now = getNowTime();
-    const next = getNextUpdateTime();
-    document.getElementById(`${WIDGET_ID}-updateLine`).textContent =
-      `Actualizado a ${now} | Actualiza cada 1 minuto`;
-    if (isActive) {
-      document.getElementById(`${WIDGET_ID}-nextUpdateText`).textContent =
-        `Actualiza cada 1 minuto. Próxima actualización: ${next}`;
-    } else {
-      document.getElementById(`${WIDGET_ID}-nextUpdateText`).textContent =
-        `No activo. El indicador volverá a estar operativo el lunes a las 00:01 hora española.`;
-    }
-  }
-  async function updateWidget() {
-    const isActive = isForexActive();
-    updateTimes(isActive);
-    const probElem = document.getElementById(`${WIDGET_ID}-probabilityNumber`);
-    const textElem = document.getElementById(`${WIDGET_ID}-forecastText`);
-    if (!isActive) {
-      probElem.textContent = '--%';
-      probElem.className = 'probability-number';
-      textElem.innerHTML = 'El mercado Forex está cerrado los fines de semana.<br>El indicador volverá a actualizarse el lunes a las 00:01 hora española.';
-      return;
-    }
-    const percent = await fetchPercentFromDailyClose();
-    if (percent === null) {
-      probElem.textContent = '--%';
-      probElem.className = 'probability-number';
-      textElem.innerHTML = 'No se pudo obtener el dato de cierre. Reintentando...';
-      return;
-    }
-    const sign = percent > 0 ? '+' : '';
-    probElem.textContent = `${sign}${percent.toFixed(2)}%`;
-    const { text, colorClass } = getForecastComment(percent);
-    probElem.className = `probability-number ${colorClass}`;
-    textElem.innerHTML = text;
-  }
 
-  function createWidget() {
-    injectCSS();
-    // Busca el div id="widget-bitcoin"
-    var cont = document.getElementById(WIDGET_ID);
-    if (!cont) return;
-    cont.innerHTML = makeWidgetHTML();
-    updateWidget();
-    setInterval(updateWidget, UPDATE_INTERVAL_MS);
-  }
+    private void initComponents() {
+        mainPanel = new JPanel();
+        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+        mainPanel.setBackground(new Color(240, 240, 240));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
-  if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(createWidget, 1);
-  } else {
-    document.addEventListener('DOMContentLoaded', createWidget);
-  }
-})();
+        // Configuración de las barras
+        athBar = createBar(Color.GREEN);
+        priceBar = createBar(new Color(0, 102, 204)); // Azul para BTC Hoy
+        forecastBar = createBar(Color.GREEN);
+
+        // Configuración de las etiquetas
+        athLabel = new JLabel("ATH (22 mayo)");
+        athLabel.setFont(new Font("Arial", Font.BOLD, 16));
+        athLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        btcTodayLabel = new JLabel("BTC Hoy");
+        btcTodayLabel.setFont(new Font("Arial", Font.BOLD, 16));
+        btcTodayLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        forecastLabel = new JLabel("PREVISIÓN");
+        forecastLabel.setFont(new Font("Arial", Font.BOLD, 16));
+        forecastLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        athPriceLabel = new JLabel("Máximo Histórico: Cargando...");
+        athPriceLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        btcPriceLabel = new JLabel("Precio: Cargando...");
+        btcPriceLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel forecastInfoLabel = new JLabel("Según indicador VipTrend-Bitcoin");
+        forecastInfoLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        summaryLabel = new JLabel("Cargando resumen...");
+        summaryLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        summaryLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(221, 221, 221)),
+                BorderFactory.createEmptyBorder(12, 12, 12, 12)));
+        summaryLabel.setBackground(Color.WHITE);
+        summaryLabel.setOpaque(true);
+
+        updateInfoLabel = new JLabel("Cargando información de actualización...");
+        updateInfoLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        disclaimerLabel = new JLabel("<html><center>Descargo de Responsabilidad: Esto es un ejemplo educativo y nunca se tomará para trading ni inversiones</center></html>");
+        disclaimerLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        disclaimerLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(255, 204, 153)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)));
+        disclaimerLabel.setBackground(new Color(255, 243, 230));
+        disclaimerLabel.setOpaque(true);
+        disclaimerLabel.setForeground(new Color(116, 71, 0));
+
+        viptrendLabel = new JLabel("<html><center><h3>Sobre VipTrend-Bitcoin</h3>Nuestro indicador prevé los posibles movimientos alcistas o bajistas de Bitcoin calculando si se acerca o aleja del actual ATH de Bitcoin</center></html>");
+        viptrendLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        viptrendLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Color.DARK_GRAY),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)));
+        viptrendLabel.setBackground(Color.BLACK);
+        viptrendLabel.setOpaque(true);
+        viptrendLabel.setForeground(Color.WHITE);
+
+        authorsLabel = new JLabel("Desarrollado por: Tom Lips & VipTrader");
+        authorsLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        authorsLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(153, 204, 255)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)));
+        authorsLabel.setBackground(new Color(230, 243, 255));
+        authorsLabel.setOpaque(true);
+        authorsLabel.setForeground(new Color(0, 77, 153));
+    }
+
+    private JProgressBar createBar(Color color) {
+        JProgressBar bar = new JProgressBar(SwingConstants.VERTICAL, 0, 100);
+        bar.setValue(0);
+        bar.setForeground(color);
+        bar.setStringPainted(false);
+        bar.setPreferredSize(new Dimension(40, 280));
+        bar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 1, 1, 0, new Color(187, 187, 187)),
+                BorderFactory.createEmptyBorder(0, 5, 0, 5)));
+        return bar;
+    }
+
+    private void setupLayout() {
+        // Panel para los gráficos
+        JPanel chartsPanel = new JPanel();
+        chartsPanel.setLayout(new BoxLayout(chartsPanel, BoxLayout.X_AXIS));
+        chartsPanel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        chartsPanel.setBackground(new Color(240, 240, 240));
+
+        // Gráfico ATH
+        JPanel athPanel = createChartPanel(athLabel, athBar, athPriceLabel);
+        chartsPanel.add(athPanel);
+
+        // Gráfico BTC Hoy
+        JPanel btcPanel = createChartPanel(btcTodayLabel, priceBar, btcPriceLabel);
+        chartsPanel.add(btcPanel);
+
+        // Gráfico Previsión
+        JPanel forecastPanel = createChartPanel(forecastLabel, forecastBar, new JLabel("Según indicador VipTrend-Bitcoin"));
+        chartsPanel.add(forecastPanel);
+
+        mainPanel.add(chartsPanel);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 15)));
+        mainPanel.add(summaryLabel);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        mainPanel.add(updateInfoLabel);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        mainPanel.add(disclaimerLabel);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        mainPanel.add(viptrendLabel);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        mainPanel.add(authorsLabel);
+
+        add(mainPanel);
+    }
+
+    private JPanel createChartPanel(JLabel title, JProgressBar bar, JLabel info) {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBackground(new Color(240, 240, 240));
+        panel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
+
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+        panel.add(title);
+
+        JPanel barContainer = new JPanel();
+        barContainer.setLayout(new BoxLayout(barContainer, BoxLayout.X_AXIS));
+        barContainer.setBackground(new Color(240, 240, 240));
+
+        // Eje Y
+        JPanel yAxis = new JPanel();
+        yAxis.setLayout(new BoxLayout(yAxis, BoxLayout.Y_AXIS));
+        yAxis.setBackground(new Color(240, 240, 240));
+        yAxis.setPreferredSize(new Dimension(60, 280));
+
+        String[] yLabels = {"$120,000", "$110,000", "$100,000", "$90,000", "$80,000"};
+        for (String label : yLabels) {
+            JLabel yLabel = new JLabel(label);
+            yLabel.setFont(new Font("Arial", Font.PLAIN, 10));
+            yLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            yAxis.add(yLabel);
+            yAxis.add(Box.createRigidArea(new Dimension(0, 45)));
+        }
+
+        barContainer.add(yAxis);
+        barContainer.add(bar);
+
+        panel.add(barContainer);
+        
+        info.setAlignmentX(Component.CENTER_ALIGNMENT);
+        info.setFont(new Font("Arial", Font.PLAIN, 12));
+        panel.add(info);
+
+        return panel;
+    }
+
+    private void setupTimer() {
+        updateTimer = new Timer(35 * 60 * 1000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                fetchCryptoData();
+            }
+        });
+        updateTimer.start();
+    }
+
+    private void fetchCryptoData() {
+        new Thread(() -> {
+            try {
+                // Valor fijo para ATH
+                final double btcATH = 111814.00;
+
+                // Obtener datos históricos de Bitcoin
+                JSONObject btcHistoryData = fetchJsonFromUrl(
+                    "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=365");
+                JSONArray prices = btcHistoryData.getJSONArray("prices");
+                double startPrice = prices.getJSONArray(0).getDouble(1);
+                double currentPrice = prices.getJSONArray(prices.length() - 1).getDouble(1);
+                double btcYTD = ((currentPrice / startPrice) - 1) * 100;
+
+                // Obtener datos actuales de Bitcoin
+                JSONObject btcData = fetchJsonFromUrl(
+                    "https://api.coingecko.com/api/v3/coins/bitcoin");
+                double btcPrice = btcData.getJSONObject("market_data")
+                    .getJSONObject("current_price").getDouble("usd");
+
+                // Obtener datos de Bitcoin Cash
+                JSONObject bchData = fetchJsonFromUrl(
+                    "https://api.coingecko.com/api/v3/coins/bitcoin-cash");
+                double bchChange24h = bchData.getJSONObject("market_data")
+                    .getDouble("price_change_percentage_24h");
+
+                // Calcular la previsión
+                double adjustmentFactor = bchChange24h >= 0 ? 3 : 2;
+                double adjustedBchChange = bchChange24h / adjustmentFactor;
+                double combinedPrice = btcPrice + (adjustedBchChange / 100 * btcPrice);
+                double combinedChange = adjustedBchChange;
+
+                // Escalar las alturas de las barras
+                double range = 40000; // $120,000 - $80,000
+                int athBarValue = (int) Math.min(((btcATH - 80000) / range) * 100, 100);
+                int priceBarValue = (int) Math.min(((btcPrice - 80000) / range) * 100, 100);
+                int forecastBarValue = (int) Math.min(((combinedPrice - 80000) / range) * 100, 100);
+
+                // Actualizar UI en el hilo de despacho de eventos
+                SwingUtilities.invokeLater(() -> {
+                    athBar.setValue(athBarValue);
+                    athPriceLabel.setText(String.format("Máximo Histórico: $%.2f", btcATH));
+
+                    priceBar.setValue(priceBarValue);
+                    btcPriceLabel.setText(String.format("Precio: $%.2f", btcPrice));
+
+                    forecastBar.setValue(forecastBarValue);
+                    forecastBar.setForeground(combinedChange >= 0 ? Color.GREEN : Color.RED);
+
+                    // Generar resumen
+                    double priceVsATH = (btcPrice / btcATH) * 100;
+                    boolean isNearATH = priceVsATH > 90;
+                    boolean isAboveCurrent = forecastBarValue > priceBarValue;
+
+                    String summaryText;
+                    if (isNearATH) {
+                        if (isAboveCurrent) {
+                            summaryText = "El precio de Bitcoin está cerca de su máximo histórico (ATH). La previsión sugiere una tendencia al alza, con posibilidad de superar el ATH en el corto plazo.";
+                        } else {
+                            summaryText = "El precio de Bitcoin está cerca de su máximo histórico (ATH), pero la previsión indica resistencia, sugiriendo un posible retroceso o consolidación en el precio.";
+                        }
+                    } else {
+                        if (isAboveCurrent) {
+                            summaryText = "El precio de Bitcoin está lejos de su máximo histórico (ATH). La previsión muestra una tendencia al alza, indicando un posible acercamiento gradual al ATH.";
+                        } else {
+                            summaryText = "El precio de Bitcoin está lejos de su máximo histórico (ATH). La previsión sugiere un retroceso adicional en el precio a corto plazo.";
+                        }
+                    }
+                    summaryLabel.setText("<html><div style='width:400px;'>Resumen Comentado: " + summaryText + "</div></html>");
+
+                    // Actualizar información de tiempo
+                    Date now = new Date();
+                    String lastUpdate = timeFormat.format(now) + " CEST";
+                    Date nextUpdate = new Date(now.getTime() + 35 * 60 * 1000);
+                    String nextUpdateStr = timeFormat.format(nextUpdate) + " CEST";
+                    updateInfoLabel.setText("Actualiza cada 35 minutos | Última actualización: " + lastUpdate + " | Próxima actualización: " + nextUpdateStr);
+                });
+
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() -> {
+                    athPriceLabel.setText("Máximo Histórico: Error");
+                    btcPriceLabel.setText("Precio: Error");
+                    summaryLabel.setText("Resumen Comentado: Error al cargar datos - " + e.getMessage());
+                    updateInfoLabel.setText("Información de actualización: Error");
+                });
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private JSONObject fetchJsonFromUrl(String urlString) throws Exception {
+        URL url = new URL(urlString);
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("GET");
+
+        int responseCode = connection.getResponseCode();
+        if (responseCode != 200) {
+            throw new Exception("Error en la respuesta: " + responseCode);
+        }
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+        String inputLine;
+        StringBuilder response = new StringBuilder();
+
+        while ((inputLine = in.readLine()) != null) {
+            response.append(inputLine);
+        }
+        in.close();
+
+        return new JSONObject(response.toString());
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            BitcoinIndicators app = new BitcoinIndicators();
+            app.setVisible(true);
+        });
+    }
+}
